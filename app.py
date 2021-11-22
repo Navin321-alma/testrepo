@@ -1,123 +1,106 @@
-# Importing required libraries, obviously
-import streamlit as st
-import cv2
-from PIL import Image
 import numpy as np
-import os
+import cv2
+import streamlit as st
+import time 
+from PIL import Image, ImageOps
+from tensorflow import keras
+from keras.models import model_from_json
+from keras.preprocessing.image import img_to_array
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
+# load model
+emotion_dict = {0:'angry', 1 :'neutral', 2: 'fear', 3:'happy', 4: 'sad',5: 'surprise'}
+# load json and create model
+json_file = open(r'\Users\navin\fer33\model1.json', 'r')
+loaded_model_json = json_file.read()
+json_file.close()
+classifier = model_from_json(loaded_model_json)
 
-# Loading pre-trained parameters for the cascade classifier
+# load weights into new model
+classifier.load_weights("model_final.h5")
+
+#load face
 try:
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
-    smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smile.xml')
+    face_cascade = cv2.CascadeClassifier(r"\Users\navin\fer33\haarcascade_frontalface_default2.xml")
 except Exception:
     st.write("Error loading cascade classifiers")
 
-def detect(image):
-    '''
-    Function to detect faces/eyes and smiles in the image passed to this function
-    '''
+class VideoTransformer(VideoTransformerBase):
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
 
-    
-    image = np.array(image.convert('RGB'))
-    
-    # Next two lines are for converting the image from 3 channel image (RGB) into 1 channel image
-    # img = cv2.cvtColor(new_img, 1)
-    # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # Passing grayscale image to perform detection
-    # We pass grayscaled image because opencv expects image with one channel
-    # Even if you don't convert the image into one channel, open-cv does it automatically.
-    # So, you can just comment line number 26 and 27.
-    # If you do, make sure that you change the variables name at appropriate places in the code below
-    # Don't blame me if you run into errors while doing that :P
-    
-    faces = face_cascade.detectMultiScale(image=image, scaleFactor=1.3, minNeighbors=5)
-    # The face_cascade classifier returns coordinates of the area in which the face might be located in the image
-    # These coordinates are (x,y,w,h)
-    # We will be looking for eyes and smile within this area instead of looking for them in the entire image
-    # This makes sense when you're looking for smiles and eyes in a face, if that is not your use case then
-    # you can pull the code segment out and make a different function for doing just that, specifically.
+        #image gray
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(
+            image=img_gray, scaleFactor=1.3, minNeighbors=5)
+        for (x, y, w, h) in faces:
+            cv2.rectangle(img=img, pt1=(x, y), pt2=(
+                x + w, y + h), color=(255, 0, 0), thickness=2)
+            roi_gray = img_gray[y:y + h, x:x + w]
+            roi_gray = cv2.resize(roi_gray, (48, 48), interpolation=cv2.INTER_AREA)
+            if np.sum([roi_gray]) != 0:
+                roi = roi_gray.astype('float') / 255.0
+                roi = img_to_array(roi)
+                roi = np.expand_dims(roi, axis=0)
+                prediction = classifier.predict(roi)[0]
+                maxindex = int(np.argmax(prediction))
+                finalout = emotion_dict[maxindex]
+                output = str(finalout)
+            label_position = (x, y)
+            cv2.putText(img, output, label_position, cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-
-    # Draw rectangle around faces
-    for (x, y, w, h) in faces:
-        
-        # The following are the parameters of cv2.rectangle()
-        # cv2.rectangle(image_to_draw_on, start_point, end_point, color, line_width)
-        cv2.rectangle(img=image, pt1=(x, y), pt2=(x + w, y + h), color=(255, 0, 0), thickness=2)
-        
-        roi = image[y:y+h, x:x+w]
-        
-        # Detecting eyes in the face(s) detected
-        eyes = eye_cascade.detectMultiScale(roi)
-        
-        # Detecting smiles in the face(s) detected
-        smile = smile_cascade.detectMultiScale(roi, minNeighbors = 25)
-        
-        # Drawing rectangle around eyes
-        for (ex,ey,ew,eh) in eyes:
-            cv2.rectangle(roi, (ex, ey), (ex+ew, ey+eh), (0,255,0), 2)
-            
-        # Drawing rectangle around smile
-        for (sx,sy,sw,sh) in smile:
-            cv2.rectangle(roi, (sx, sy), (sx+sw, sy+sh), (0,0,255), 2)
-
-    # Returning the image with bounding boxes drawn on it (in case of detected objects), and faces array
-    return image, faces
-
-
-def about():
-	st.write(
-		'''
-		**Haar Cascade** is an object detection algorithm.
-		It can be used to detect objects in images or videos. 
-
-		The algorithm has four stages:
-
-			1. Haar Feature Selection 
-			2. Creating  Integral Images
-			3. Adaboost Training
-			4. Cascading Classifiers
-
-
-
-Read more :point_right: https://docs.opencv.org/2.4/modules/objdetect/doc/cascade_classification.html
-https://sites.google.com/site/5kk73gpu2012/assignment/viola-jones-face-detection#TOC-Image-Pyramid
-		''')
-
+        return img
 
 def main():
-    st.title("Face Detection App :sunglasses: ")
-    st.write("**Using the Haar cascade Classifiers**")
-
-    activities = ["Home", "About"]
-    choice = st.sidebar.selectbox("Pick something fun", activities)
-
+    # Face Analysis Application #
+    st.title("Real Time Face Emotion Detection Application")
+    activiteis = ["Home", "Webcam Face Detection", "About"]
+    choice = st.sidebar.selectbox("Select Activity", activiteis)
+    st.sidebar.markdown(
+        """ Developed by Navin kodam    
+            Email : kodamnavin18@gmail.com  
+            [LinkedIn] (https://www.linkedin.com/in/navin-kodam-183293174/)""")
     if choice == "Home":
+        html_temp_home1 = """<div style="background-color:#6D7B8D;padding:10px">
+                                            <h4 style="color:white;text-align:center;">
+                                            Face Emotion detection application using OpenCV, Custom CNN model and Streamlit.</h4>
+                                            </div>
+                                            </br>"""
+        st.markdown(html_temp_home1, unsafe_allow_html=True)
+        st.write("""
+                 The application has two functionalities.
 
-    	st.write("Go to the About section from the sidebar to learn more about it.")
-        
-        # You can specify more file types below if you want
-    	image_file = st.file_uploader("Upload image", type=['jpeg', 'png', 'jpg', 'webp'])
+                 1. Real time face detection using web cam feed.
 
-    	if image_file is not None:
+                 2. Real time face emotion recognization.
 
-    		image = Image.open(image_file)
-
-    		if st.button("Process"):
-                
-                # result_img is the image with rectangle drawn on it (in case there are faces detected)
-                # result_faces is the array with co-ordinates of bounding box(es)
-    			result_img, result_faces = detect(image=image)
-    			st.image(result_img, use_column_width = True)
-    			st.success("Found {} faces\n".format(len(result_faces)))
-
+                 """)
+    elif choice == "Webcam Face Detection":
+        st.header("Webcam Live Feed")
+        st.write("Click on start to use webcam and detect your face emotion")
+        webrtc_streamer(key="example", video_transformer_factory=VideoTransformer)  
+    
     elif choice == "About":
-    	about()
+        st.subheader("About this app")
+        html_temp_about1= """<div style="background-color:#6D7B8D;padding:10px">
+                                    <h4 style="color:white;text-align:center;">
+                                    Real time face emotion detection application using OpenCV, Custom Trained CNN model and Streamlit.</h4>
+                                    </div>
+                                    </br>"""
+        st.markdown(html_temp_about1, unsafe_allow_html=True)
 
+        html_temp4 = """
+                             		<div style="background-color:#98AFC7;padding:10px">
+                             		<h4 style="color:white;text-align:center;">This Application is developed by Mohammad Juned Khan using Streamlit Framework, Opencv, Tensorflow and Keras library for demonstration purpose. If you're on LinkedIn and want to connect, just click on the link in sidebar and shoot me a request. If you have any suggestion or wnat to comment just write a mail at Mohammad.juned.z.khan@gmail.com. </h4>
+                             		<h4 style="color:white;text-align:center;">Thanks for Visiting</h4>
+                             		</div>
+                             		<br></br>
+                             		<br></br>"""
 
+        st.markdown(html_temp4, unsafe_allow_html=True)
+
+    else:
+        pass
 
 
 if __name__ == "__main__":
